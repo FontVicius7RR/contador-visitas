@@ -1,45 +1,37 @@
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 
-const app = express();
-const port = process.env.PORT || 3000;
+// Configura el pool con la URL de conexión
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL, // Usa esta variable de entorno en Render
+  ssl: { rejectUnauthorized: false },
+});
 
-// Crear o abrir la base de datos
-const db = new sqlite3.Database('./visitas.db', (err) => {
+// Crea la tabla si no existe
+pool.query(`CREATE TABLE IF NOT EXISTS contador (id SERIAL PRIMARY KEY, visitas INTEGER DEFAULT 0)`, (err) => {
   if (err) {
-    console.error('Error al conectar con la base de datos:', err.message);
+    console.error('Error al crear tabla:', err.message);
   } else {
-    console.log('Conectado a la base de datos SQLite');
-    db.run(`CREATE TABLE IF NOT EXISTS contador (id INTEGER PRIMARY KEY, visitas INTEGER)`, (err) => {
-      if (err) console.error('Error al crear tabla:', err.message);
-    });
+    console.log('Tabla creada/verificada');
   }
 });
 
-// Rutas
-app.get('/contador', (req, res) => {
-  db.get(`SELECT visitas FROM contador WHERE id = 1`, (err, row) => {
-    if (err) {
-      res.status(500).send('Error al leer el contador');
-    } else {
-      const visitas = row ? row.visitas : 0;
-      res.send({ visitas });
-    }
-  });
+// Rutas usando PostgreSQL
+app.get('/contador', async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT visitas FROM contador WHERE id = 1`);
+    const visitas = result.rows[0]?.visitas || 0;
+    res.send({ visitas });
+  } catch (err) {
+    res.status(500).send('Error al leer el contador');
+  }
 });
 
-app.get('/incrementar', (req, res) => {
-  db.run(`INSERT OR IGNORE INTO contador (id, visitas) VALUES (1, 0)`);
-  db.run(`UPDATE contador SET visitas = visitas + 1 WHERE id = 1`, (err) => {
-    if (err) {
-      res.status(500).send('Error al incrementar el contador');
-    } else {
-      res.send({ mensaje: 'Visita incrementada' });
-    }
-  });
-});
-
-// Iniciar el servidor
-app.listen(port, () => {
-  console.log(`Servidor escuchando en http://localhost:${port}`);
+app.get('/incrementar', async (req, res) => {
+  try {
+    await pool.query(`INSERT INTO contador (id, visitas) VALUES (1, 0) ON CONFLICT (id) DO NOTHING`);
+    await pool.query(`UPDATE contador SET visitas = visitas + 1 WHERE id = 1`);
+    res.send({ mensaje: 'Visita incrementada' });
+  } catch (err) {
+    res.status(500).send('Error al incrementar el contador');
+  }
 });
