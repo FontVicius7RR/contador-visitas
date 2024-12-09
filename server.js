@@ -1,37 +1,44 @@
-const { Pool } = require('pg');
+const express = require("express");
+const sqlite3 = require("sqlite3").verbose();
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Configura el pool con la URL de conexión
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL, // Usa esta variable de entorno en Render
-  ssl: { rejectUnauthorized: false },
-});
-
-// Crea la tabla si no existe
-pool.query(`CREATE TABLE IF NOT EXISTS contador (id SERIAL PRIMARY KEY, visitas INTEGER DEFAULT 0)`, (err) => {
+// Configuración de la base de datos
+const db = new sqlite3.Database("/tmp/visitas.db", (err) => {
   if (err) {
-    console.error('Error al crear tabla:', err.message);
+    console.error("Error al conectar con la base de datos:", err.message);
   } else {
-    console.log('Tabla creada/verificada');
+    console.log("Base de datos conectada");
+    db.run(`CREATE TABLE IF NOT EXISTS contador (id INTEGER PRIMARY KEY, visitas INTEGER)`, (err) => {
+      if (err) console.error("Error al crear tabla:", err.message);
+    });
   }
 });
 
-// Rutas usando PostgreSQL
-app.get('/contador', async (req, res) => {
-  try {
-    const result = await pool.query(`SELECT visitas FROM contador WHERE id = 1`);
-    const visitas = result.rows[0]?.visitas || 0;
-    res.send({ visitas });
-  } catch (err) {
-    res.status(500).send('Error al leer el contador');
-  }
+// Ruta para obtener el contador
+app.get("/contador", (req, res) => {
+  db.get("SELECT visitas FROM contador WHERE id = 1", (err, row) => {
+    if (err) {
+      res.status(500).send("Error al leer el contador");
+    } else {
+      res.send({ visitas: row ? row.visitas : 0 });
+    }
+  });
 });
 
-app.get('/incrementar', async (req, res) => {
-  try {
-    await pool.query(`INSERT INTO contador (id, visitas) VALUES (1, 0) ON CONFLICT (id) DO NOTHING`);
-    await pool.query(`UPDATE contador SET visitas = visitas + 1 WHERE id = 1`);
-    res.send({ mensaje: 'Visita incrementada' });
-  } catch (err) {
-    res.status(500).send('Error al incrementar el contador');
-  }
+// Ruta para incrementar el contador
+app.get("/incrementar", (req, res) => {
+  db.run("INSERT OR IGNORE INTO contador (id, visitas) VALUES (1, 0)");
+  db.run("UPDATE contador SET visitas = visitas + 1 WHERE id = 1", (err) => {
+    if (err) {
+      res.status(500).send("Error al incrementar el contador");
+    } else {
+      res.send({ mensaje: "Visita incrementada" });
+    }
+  });
+});
+
+// Iniciar el servidor
+app.listen(PORT, () => {
+  console.log(`Servidor en ejecución en el puerto ${PORT}`);
 });
